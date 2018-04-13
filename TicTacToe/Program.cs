@@ -51,6 +51,8 @@ class Player
             // Write an action using Console.WriteLine()
             // To debug: Console.Error.WriteLine("Debug messages...");
             var move = tree.GetNextStep();
+            var move2 = tree.GetNextStepNew();
+            Console.Error.WriteLine(move == move2);
             if (move == null)
             {
                 move = new Tuple<int, int>(row, col);
@@ -540,6 +542,7 @@ class Leaf
     public Tuple<int, int> Move { get; set; }
     public Tuple<int, int> OponentMove { get; set; }
     public List<Leaf> SubLeafs { get; set; }
+    public Leaf Parent { get; set; }
     public bool IsEnd { get; set; }
 }
 
@@ -575,6 +578,7 @@ class GameTree
         _field = new BigGameField();
         _field.Reset(field.Field, _field.Player);
         _simulationsField = new SimWraper[9, 9];
+        ResetSimulationsField();
     }
 
     private void ResetSimulationsField()
@@ -618,6 +622,12 @@ class GameTree
         return _startLeaf.SubLeafs.FirstOrDefault(l => (double)l.Wins / l.Simulations == max)?.Move;
     }
 
+    public Tuple<int, int> GetNextStepNew()
+    {
+        var max = _startLeaf.SubLeafs.Max(l => l.Simulations);
+        return _startLeaf.SubLeafs.FirstOrDefault(l => l.Simulations == max)?.Move;
+    }
+
     public void Simulate(long time)
     {
         Stopwatch watch = new Stopwatch();
@@ -634,9 +644,11 @@ class GameTree
     {
         Referee.Simulating.Reset(_field.Field, 6 - _startLeaf.Player, _startLeaf.Move);
         var leaf = Select(_startLeaf);
-        RollOut(leaf);
-        ResetSimulationsField();
-        BackPropagate(_startLeaf);
+        Expand(leaf);
+        leaf = leaf.SubLeafs.Count > 0 ? leaf.SubLeafs[rand.Next() % leaf.SubLeafs.Count] : leaf;
+        var status = RollOut(leaf);
+        //ResetSimulationsField();
+        BackPropagate(leaf, status);
 
         _simulations = _startLeaf.Simulations;
     }
@@ -662,11 +674,11 @@ class GameTree
         return Select(nextLeaf);
     }
 
-    private void Expand(Leaf leaf, List<Tuple<int, int>> moves)
+    private void Expand(Leaf leaf)
     {
         if (leaf.IsEnd)
             return;
-
+        var moves = Referee.Simulating.GetNextMoves();
         leaf.SubLeafs = new List<Leaf>();
 
         foreach (var move in moves)
@@ -675,60 +687,44 @@ class GameTree
             {
                 Move = move,
                 Player = 6 - leaf.Player,
-                OponentMove = leaf.Move
+                OponentMove = leaf.Move,
+                Parent = leaf
             });
         }
     }
 
-    private void RollOut(Leaf leaf)
+    private BoardStatus RollOut(Leaf leaf)
     {
-        var status = Referee.Simulating.GetStatus();
-        if (status != BoardStatus.InProgress)
+        var status = BoardStatus.InProgress;
+        while ((status = Referee.Simulating.GetStatus()) == BoardStatus.InProgress)
         {
-            leaf.IsEnd = true;
-            leaf.Simulations++;
-            if (leaf.Player == BoardCells.Tic && status == BoardStatus.TicWin)
-            {
-                leaf.Wins++;
-            }
-            else if (leaf.Player == BoardCells.Tac && status == BoardStatus.TacWin)
-            {
-                leaf.Wins++;
-            }
-            return;
+            var moves = Referee.Simulating.GetNextMoves();
+
+            int move = rand.Next() % moves.Count;
+
+            var nextMove = moves[move];
+
+            Referee.Simulating.Move(nextMove.Item1, nextMove.Item2);
         }
 
-        var moves = Referee.Simulating.GetNextMoves();
-        Expand(leaf, moves);
-
-        int move = rand.Next() % moves.Count;
-
-        var nextLeaf = leaf.SubLeafs[move];
-
-        Referee.Simulating.Move(leaf.SubLeafs[move].Move.Item1, leaf.SubLeafs[move].Move.Item2);
-
-        RollOut(leaf.SubLeafs[move]);
+        return status;
     }
 
-    private void BackPropagate(Leaf leaf)
+    private void BackPropagate(Leaf leaf, BoardStatus status)
     {
-        if (leaf.IsEnd || leaf.SubLeafs == null || leaf.SubLeafs.Count == 0)
-            return;
-
-        leaf.Wins = 0;
-        leaf.Simulations = 0;
-
-        foreach (var subLeaf in leaf.SubLeafs)
-        {
-            BackPropagate(subLeaf);
-            leaf.Simulations += subLeaf.Simulations;
-            leaf.Wins += subLeaf.Simulations - subLeaf.Wins;
-        }
+        leaf.Wins += ((int)status == leaf.Player) ? (uint)1 : 0;
+        leaf.Simulations++;
+        
         if(leaf.Move.Item1 != -1)
         {
-            _simulationsField[leaf.Move.Item1, leaf.Move.Item2].Simulations += leaf.Simulations;
-            _simulationsField[leaf.Move.Item1, leaf.Move.Item2].Wins += leaf.Wins;
+            _simulationsField[leaf.Move.Item1, leaf.Move.Item2].Simulations ++;
+            _simulationsField[leaf.Move.Item1, leaf.Move.Item2].Wins += ((int)status == leaf.Player) ? (uint)1 : 0;
         }
+
+        var newStatus = status == BoardStatus.Draw ? BoardStatus.Draw : (6 - status);
+
+        if (leaf.Parent != null)
+            BackPropagate(leaf.Parent, newStatus);
     }
 
     private double c = Math.Sqrt(2);
@@ -743,7 +739,7 @@ class GameTree
 
     private double Beta(uint n, uint ns)
     {
-        return ns / (n + ns + 4 * b * b * n * ns);
+        return ns / (n + ns + 4 * b * b * n * ns + _epsilon);
     }
 
 }
