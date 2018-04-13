@@ -1,0 +1,11 @@
+bin
+obj
+/*.suo
+/.idea
+/packages
+/*.iml
+.vs/config/applicationhost.config
+/.vs/TicTacToe/v15/*.suo
+/.vs/TicTacToe/v14/*.suo
+
+/.vs/TicTacToe/v15/Server/sqlite3/*
