@@ -645,7 +645,7 @@ class GameTree
         Referee.Simulating.Reset(_field.Field, 6 - _startLeaf.Player, _startLeaf.Move);
         var leaf = Select(_startLeaf);
         Expand(leaf);
-        leaf = leaf.SubLeafs.Count > 0 ? leaf.SubLeafs[rand.Next() % leaf.SubLeafs.Count] : leaf;
+        leaf = leaf.SubLeafs != null && leaf.SubLeafs.Count > 0 ? leaf.SubLeafs[rand.Next() % leaf.SubLeafs.Count] : leaf;
         var status = RollOut(leaf);
         //ResetSimulationsField();
         BackPropagate(leaf, status);
@@ -679,6 +679,11 @@ class GameTree
         if (leaf.IsEnd)
             return;
         var moves = Referee.Simulating.GetNextMoves();
+        if(moves.Count == 0)
+        {
+            leaf.IsEnd = true;
+            return;
+        }
         leaf.SubLeafs = new List<Leaf>();
 
         foreach (var move in moves)
@@ -712,7 +717,7 @@ class GameTree
 
     private void BackPropagate(Leaf leaf, BoardStatus status)
     {
-        leaf.Wins += ((int)status == leaf.Player) ? (uint)1 : 0;
+        leaf.Wins += ((int)status == leaf.Player) || status == BoardStatus.Draw ? (uint)1 : 0;
         leaf.Simulations++;
         
         if(leaf.Move.Item1 != -1)
@@ -732,9 +737,12 @@ class GameTree
 
     private double CalculateUCT(Leaf leaf)
     {
+        if (leaf.IsEnd)
+            return Double.MaxValue;
         var totalSimulations = _simulationsField[leaf.Move.Item1, leaf.Move.Item2];
+        var parentSimulations = leaf.Parent?.Simulations ?? 0;
         var beta = Beta(leaf.Simulations, totalSimulations.Simulations);
-        return (1 - beta) * (leaf.Wins / (leaf.Simulations + _epsilon)) + (beta) * (totalSimulations.Wins / (totalSimulations.Simulations + _epsilon)) + c * Math.Sqrt(Math.Log(_simulations) / (leaf.Simulations + _epsilon)) + rand.Next() * _epsilon;
+        return (1 - beta) * (leaf.Wins / (leaf.Simulations + _epsilon)) + (beta) * (totalSimulations.Wins / (totalSimulations.Simulations + _epsilon)) + c * Math.Sqrt(Math.Log(parentSimulations) / (leaf.Simulations + _epsilon)) + rand.Next() * _epsilon;
     }
 
     private double Beta(uint n, uint ns)
