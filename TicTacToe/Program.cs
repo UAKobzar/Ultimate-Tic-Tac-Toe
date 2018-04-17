@@ -726,10 +726,8 @@ class GameTree
             _simulationsField[leaf.Move.Item1, leaf.Move.Item2].Wins += ((int)status == leaf.Player) ? (uint)1 : 0;
         }
 
-        var newStatus = status == BoardStatus.Draw ? BoardStatus.Draw : (6 - status);
-
         if (leaf.Parent != null)
-            BackPropagate(leaf.Parent, newStatus);
+            BackPropagate(leaf.Parent, status);
     }
 
     private double c = Math.Sqrt(2);
@@ -737,8 +735,6 @@ class GameTree
 
     private double CalculateUCT(Leaf leaf)
     {
-        if (leaf.IsEnd)
-            return Double.MaxValue;
         var totalSimulations = _simulationsField[leaf.Move.Item1, leaf.Move.Item2];
         var parentSimulations = leaf.Parent?.Simulations ?? 0;
         var beta = Beta(leaf.Simulations, totalSimulations.Simulations);
