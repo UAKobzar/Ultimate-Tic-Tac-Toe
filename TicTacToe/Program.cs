@@ -51,8 +51,6 @@ class Player
             // Write an action using Console.WriteLine()
             // To debug: Console.Error.WriteLine("Debug messages...");
             var move = tree.GetNextStep();
-            var move2 = tree.GetNextStepNew();
-            Console.Error.WriteLine(move == move2);
             if (move == null)
             {
                 move = new Tuple<int, int>(row, col);
@@ -618,12 +616,6 @@ class GameTree
 
     public Tuple<int, int> GetNextStep()
     {
-        var max = _startLeaf.SubLeafs.Where(l => l.Simulations != 0).Max(l => (double)l.Wins / l.Simulations);
-        return _startLeaf.SubLeafs.FirstOrDefault(l => (double)l.Wins / l.Simulations == max)?.Move;
-    }
-
-    public Tuple<int, int> GetNextStepNew()
-    {
         var max = _startLeaf.SubLeafs.Max(l => l.Simulations);
         return _startLeaf.SubLeafs.FirstOrDefault(l => l.Simulations == max)?.Move;
     }
@@ -735,6 +727,8 @@ class GameTree
 
     private double CalculateUCT(Leaf leaf)
     {
+        if (leaf.IsEnd)
+            return Double.MaxValue;
         var totalSimulations = _simulationsField[leaf.Move.Item1, leaf.Move.Item2];
         var parentSimulations = leaf.Parent?.Simulations ?? 0;
         var beta = Beta(leaf.Simulations, totalSimulations.Simulations);
