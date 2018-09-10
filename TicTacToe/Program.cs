@@ -14,6 +14,7 @@ class Player
 {
     static void Main(string[] args)
     {
+        //Tester.Train();
         string[] inputs;
 
         Referee.GameReferee.Reset();
@@ -246,6 +247,18 @@ class SmallGameField
         }
     }
 
+    public int Score { get; private set; }
+
+    private int CalculateScore(int player)
+    {
+        var status = GetStatus();
+        if (status != BoardStatus.InProgress)
+            return 0;
+
+        return player == BoardCells.Tic ?  Heuristic.GetScore(_field) : -Heuristic.GetScore(_field);
+
+    }
+
     private bool _statusUpdated = false;
 
     private BoardStatus GetStatus()
@@ -361,6 +374,7 @@ class SmallGameField
     {
         _field[row, col] = player;
         _statusUpdated = false;
+        Score = CalculateScore(player);
     }
 }
 
@@ -525,10 +539,46 @@ class BigGameField
         _player = player;
     }
 
+    public int Score { get; private set; }
+
+    private int CalculateScore(int player)
+    {
+        var status = Status;
+        int result = 0;
+
+        if (status != BoardStatus.InProgress)
+            return Heuristic.WinScore;
+
+        int[,] bigBoard = new int[3, 3];
+
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                bigBoard[i, j] = (int)_field[i, j].Status;
+                result += _field[i, j].Score;
+            }
+        }
+
+        result = _player == BoardCells.Tic ? Heuristic.GetScore(bigBoard) * 23 : Heuristic.GetScore(bigBoard) * -23;
+
+        return result;
+    }
+
     public void Move(int row, int col)
     {
         _field[row / 3, col / 3].Move(row % 3, col % 3, _player);
         _player = 6 - _player;
+
+        Score = CalculateScore(6 - _player);
+    }
+
+    public int GetMoveScore(int row, int col)
+    {
+        _field[row / 3, col / 3].Move(row % 3, col % 3, _player);
+        var score = CalculateScore(_player);
+        _field[row / 3, col / 3].Move(row % 3, col % 3, BoardCells.Empty);
+        return score;
     }
 }
 
@@ -639,7 +689,6 @@ class GameTree
         Expand(leaf);
         leaf = leaf.SubLeafs != null && leaf.SubLeafs.Count > 0 ? leaf.SubLeafs[rand.Next() % leaf.SubLeafs.Count] : leaf;
         var status = RollOut(leaf);
-        //ResetSimulationsField();
         BackPropagate(leaf, status);
 
         _simulations = _startLeaf.Simulations;
@@ -671,7 +720,7 @@ class GameTree
         if (leaf.IsEnd)
             return;
         var moves = Referee.Simulating.GetNextMoves();
-        if(moves.Count == 0)
+        if (moves.Count == 0)
         {
             leaf.IsEnd = true;
             return;
@@ -697,9 +746,7 @@ class GameTree
         {
             var moves = Referee.Simulating.GetNextMoves();
 
-            int move = rand.Next() % moves.Count;
-
-            var nextMove = moves[move];
+            var nextMove = StandartMove(moves);
 
             Referee.Simulating.Move(nextMove.Item1, nextMove.Item2);
         }
@@ -711,10 +758,10 @@ class GameTree
     {
         leaf.Wins += ((int)status == leaf.Player) || status == BoardStatus.Draw ? (uint)1 : 0;
         leaf.Simulations++;
-        
-        if(leaf.Move.Item1 != -1)
+
+        if (leaf.Move.Item1 != -1)
         {
-            _simulationsField[leaf.Move.Item1, leaf.Move.Item2].Simulations ++;
+            _simulationsField[leaf.Move.Item1, leaf.Move.Item2].Simulations++;
             _simulationsField[leaf.Move.Item1, leaf.Move.Item2].Wins += ((int)status == leaf.Player) ? (uint)1 : 0;
         }
 
@@ -722,13 +769,11 @@ class GameTree
             BackPropagate(leaf.Parent, status);
     }
 
-    private double c = Math.Sqrt(2);
-    private double b = Math.Sqrt(2);
+    public double c = Math.Sqrt(2);
+    public double b = Math.Sqrt(2);
 
     private double CalculateUCT(Leaf leaf)
     {
-        if (leaf.IsEnd)
-            return Double.MaxValue;
         var totalSimulations = _simulationsField[leaf.Move.Item1, leaf.Move.Item2];
         var parentSimulations = leaf.Parent?.Simulations ?? 0;
         var beta = Beta(leaf.Simulations, totalSimulations.Simulations);
@@ -740,6 +785,17 @@ class GameTree
         return ns / (n + ns + 4 * b * b * n * ns + _epsilon);
     }
 
+    private Tuple<int, int> StandartMove(List<Tuple<int, int>> moves)
+    {
+        List<int> scores = new List<int>();
+        foreach (var move in moves)
+        {
+            scores.Add(Referee.Simulating._field.GetMoveScore(move.Item1,move.Item2));
+        }
+
+        return moves[scores.IndexOf(scores.Max())];
+    }
+
 }
 
 enum BoardStatus
@@ -748,4 +804,57 @@ enum BoardStatus
     TicWin = 2,
     TacWin = 4,
     Draw = 8
+}
+
+public static class Heuristic
+{
+    public static int WinScore = 1000000;
+
+    private static int[,,] _winningSequences = new int[,,]
+    {
+        { { 0,0 }, { 0,1 }, { 0,2 } },
+        { { 1,0 }, { 1,1 }, { 1,2 } },
+        { { 2,0 }, { 2,1 }, { 2,2 } },
+        { { 0,0 }, { 1,0 }, { 2,0 } },
+        { { 0,1 }, { 1,1 }, { 2,1 } },
+        { { 0,2 }, { 1,2 }, { 2,2 } },
+        { { 0,0 }, { 1,1 }, { 2,2 } },
+        { { 0,2 }, { 1,1 }, { 2,0 } }
+    };
+
+    private static int ApproximateWinScore = 7;
+
+    public static int GetScore(int [,] _field)
+    {
+        int player1 = 0, player2 = 0;
+        for (int i = 0; i < 8; i++)
+        {
+            List<int> filteredField = new List<int>();
+            for (int j = 0; j < 3; j++)
+            {
+                if (_field[_winningSequences[i, j, 0], _winningSequences[i, j, 1]] != BoardCells.Empty)
+                    filteredField.Add(_field[_winningSequences[i, j, 0], _winningSequences[i, j, 1]]);
+            }
+
+            if(filteredField.Contains(BoardCells.Tic))
+            {
+                if (filteredField.Contains(BoardCells.Tac))
+                    continue;
+                if (filteredField.Count > 1)
+                    player1 += ApproximateWinScore;
+                player1++;
+            }
+            else
+            {
+                if (filteredField.Contains(BoardCells.Tac))
+                {
+                    if (filteredField.Count > 1)
+                        player2 += ApproximateWinScore;
+                    player2++;
+                }
+            }
+        }
+
+        return player1 - player2;
+    }
 }
